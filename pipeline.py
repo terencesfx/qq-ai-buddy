@@ -7,12 +7,15 @@
 保证 AI 看到的顺序与历史写入顺序一致；不同会话之间互不阻塞。
 """
 import asyncio
+import logging
 import re
 
 import protocol  # 运行时调用其 send_* / 在 import 期不引用其属性，避免循环导入问题
 import memory
 import ai
 from config import CONTEXT_WINDOW
+
+log = logging.getLogger("pipeline")
 
 # 每个会话一把锁
 _locks: dict[str, asyncio.Lock] = {}
@@ -60,8 +63,8 @@ async def process(ws, *, skey: str, is_group: bool, group_id, user_id,
         # 4) AI 双重判断（被 @ 是结构化事实，强制发言，AI 只生成内容+记忆）
         try:
             decision = await ai.decide(skey, is_group, CONTEXT_WINDOW, must_reply=at_bot)
-        except Exception as e:
-            print(f"[AI] 判断失败：{e}")
+        except Exception:
+            log.exception("AI 判断失败")
             return
 
         # 5) 落记忆
@@ -73,7 +76,7 @@ async def process(ws, *, skey: str, is_group: bool, group_id, user_id,
                 continue
             if fact:
                 memory.add_memory(uid, fact)
-                print(f"[记忆] {memory.member_name(uid, str(uid))} → {fact}")
+                log.info("记忆 %s → %s", memory.member_name(uid, str(uid)), fact)
 
         # 6) 按需发言
         if decision.get("should_speak") and decision.get("reply"):
@@ -84,4 +87,4 @@ async def process(ws, *, skey: str, is_group: bool, group_id, user_id,
                 await protocol.send_private_msg(ws, user_id, reply)
             # bot 自己的发言也进历史
             memory.append_message(skey, ts, "assistant", reply)
-            print(f"[发言] {skey}: {reply}")
+            log.info("发言 %s: %s", skey, reply)

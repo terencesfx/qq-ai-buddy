@@ -1,11 +1,14 @@
 import asyncio
 import json
+import logging
 import uuid
 
 from config import BOT_QQ, ENABLED_GROUPS, ENABLED_USERS, PERSONA
 import memory
 import commands
 import pipeline
+
+log = logging.getLogger("protocol")
 
 
 # ─────────────────────────────────────────
@@ -136,7 +139,7 @@ async def handle_message_event(ws, event: dict):
 
     is_group = message_type == "group"
     skey = memory.session_key(message_type, group_id, user_id)
-    print(f"[{'群' + str(group_id) if is_group else '私'}] {username}({user_id}): {full_text}")
+    log.info("[%s] %s(%s): %s", "群" + str(group_id) if is_group else "私", username, user_id, full_text)
 
     # /命令 不走 AI，直接路由到 commands
     if full_text.startswith("/"):
@@ -171,7 +174,7 @@ async def handle_notice_event(ws, event: dict):
     if notice_type == "group_increase":
         group_id = event.get("group_id")
         user_id  = event.get("user_id")
-        print(f"[通知] 新成员 {user_id} 加入群 {group_id}")
+        log.info("新成员 %s 加入群 %s", user_id, group_id)
         # 修复：使用消息段格式，不混用 CQ 码
         await call_api(ws, "send_group_msg", {
             "group_id": group_id,
@@ -183,24 +186,25 @@ async def handle_notice_event(ws, event: dict):
 
     elif notice_type == "group_decrease":
         sub_type = event.get("sub_type")  # "leave" | "kick" | "kick_me"
-        print(f"[通知] {event.get('user_id')} 离开群 {event.get('group_id')}（{sub_type}）")
+        log.info("%s 离开群 %s（%s）", event.get("user_id"), event.get("group_id"), sub_type)
 
     elif notice_type == "group_recall":
-        print(f"[通知] 消息 {event.get('message_id')} 被 {event.get('operator_id')} 撤回")
+        log.info("消息 %s 被 %s 撤回", event.get("message_id"), event.get("operator_id"))
 
     elif notice_type == "friend_add":
-        print(f"[通知] 新好友：{event.get('user_id')}")
+        log.info("新好友：%s", event.get("user_id"))
 
     elif notice_type == "group_ban":
         duration = event.get("duration", 0)
-        print(f"[通知] {event.get('user_id')} 在群 {event.get('group_id')} 被{'禁言' if duration else '解禁'}，时长={duration}s")
+        log.info("%s 在群 %s 被%s，时长=%ss", event.get("user_id"), event.get("group_id"),
+                 "禁言" if duration else "解禁", duration)
 
     elif notice_type == "notify" and event.get("sub_type") == "poke":
         if event.get("target_id") == BOT_QQ:
             await send_group_msg_with_at(ws, event.get("group_id"), event.get("user_id"), "干嘛戳我 (｀・ω・´)")
 
     else:
-        print(f"[通知] {notice_type}: {event}")
+        log.debug("其它通知 %s: %s", notice_type, event)
 
 
 async def handle_request_event(ws, event: dict):
@@ -209,24 +213,30 @@ async def handle_request_event(ws, event: dict):
     if request_type == "friend":
         flag    = event.get("flag")
         user_id = event.get("user_id")
-        print(f"[请求] 好友申请 from {user_id}，验证：{event.get('comment', '')}")
+        log.info("好友申请 from %s，验证：%s", user_id, event.get("comment", ""))
         await call_api(ws, "set_friend_add_request", {"flag": flag, "approve": True})
 
     elif request_type == "group":
         sub_type = event.get("sub_type")
-        print(f"[请求] 群 {event.get('group_id')} 的 {sub_type} 请求，来自 {event.get('user_id')}")
+        log.info("群 %s 的 %s 请求，来自 %s", event.get("group_id"), sub_type, event.get("user_id"))
 
 
 async def handle_meta_event(ws, event: dict):
     meta_type = event.get("meta_event_type")
     if meta_type == "heartbeat":
-        print(f"[心跳] 在线={event.get('status', {}).get('online')}，间隔={event.get('interval', 0)}ms")
+        log.debug("心跳 在线=%s 间隔=%sms", event.get("status", {}).get("online"), event.get("interval", 0))
     elif meta_type == "lifecycle":
-        print(f"[生命周期] {event.get('sub_type')}")
+        log.info("生命周期：%s", event.get("sub_type"))
 
 
 async def handle_api_response(event: dict):
-    print(f"[API响应] echo={event.get('echo')} status={event.get('status')} retcode={event.get('retcode')}")
+    status = event.get("status")
+    retcode = event.get("retcode")
+    # 失败的 API 调用值得 warning，成功的降为 debug
+    if status == "ok" or retcode == 0:
+        log.debug("API响应 echo=%s status=%s retcode=%s", event.get("echo"), status, retcode)
+    else:
+        log.warning("API调用失败 echo=%s status=%s retcode=%s", event.get("echo"), status, retcode)
 
 
 # ─────────────────────────────────────────
@@ -236,8 +246,8 @@ async def handle_api_response(event: dict):
 async def _safe_handle_message(ws, event: dict):
     try:
         await handle_message_event(ws, event)
-    except Exception as e:
-        print(f"[错误] 处理消息事件异常：{e}")
+    except Exception:
+        log.exception("处理消息事件异常")
 
 
 async def dispatch(ws, event: dict):
@@ -257,4 +267,4 @@ async def dispatch(ws, event: dict):
     elif post_type == "meta_event":
         await handle_meta_event(ws, event)
     else:
-        print(f"[未知事件] post_type={post_type}")
+        log.warning("未知事件 post_type=%s", post_type)

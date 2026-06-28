@@ -1,0 +1,51 @@
+[Unit]
+Description=QQ AI 群友（小晨）
+# 等网络就绪再启动；如果 NapCat/OneBot 也是本机 systemd 服务，可改成依赖它：
+# After=network-online.target napcat.service
+# Wants=napcat.service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# ── 按你的部署环境改这三行 ──────────────────────
+# 运行用户（建议用非 root 普通用户）
+User=ubuntu
+# 项目所在目录（main.py 所在处）
+WorkingDirectory=/opt/qqbot
+# 启动命令：用 venv 里的 python 跑 main.py，参数按需填
+# 敏感值（--auth / --api-key）建议放到下面的 EnvironmentFile，再用 $VAR 引用
+ExecStart=/opt/qqbot/.venv/bin/python /opt/qqbot/main.py \
+    --url ws://127.0.0.1:3001 \
+    --auth ${ONEBOT_TOKEN} \
+    --api-key ${OPENAI_API_KEY} \
+    --api-base https://api.openai.com/v1 \
+    --model gpt-5.5 \
+    --log-dir /opt/qqbot/logs \
+    --log-level INFO
+
+# 把密钥放在一个 root-only 文件里（chmod 600），避免写进 service / 进程列表被别人看到
+# 文件内容形如：
+#   ONEBOT_TOKEN=xxxx
+#   OPENAI_API_KEY=sk-xxxx
+EnvironmentFile=/opt/qqbot/.env
+
+# ── 崩溃自动重启 ───────────────────────────────
+Restart=always
+RestartSec=5
+# 防止疯狂重启：300 秒内最多重启 5 次，超了就停（systemctl reset-failed 可清零）
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# 日志：脚本自身已写文件日志；stdout/stderr 也进 journald 方便 journalctl 查看
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=qqbot
+
+# ── 一点点加固（可选）─────────────────────────
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

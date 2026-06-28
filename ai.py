@@ -12,6 +12,7 @@
 模型可在判断前调用 get_history 工具回溯更早的历史（tool-loop）。
 """
 import json
+import logging
 
 from openai import AsyncOpenAI
 
@@ -22,6 +23,8 @@ import tools
 _client = AsyncOpenAI(api_key=API_KEY, base_url=API_BASE)
 
 _MAX_TOOL_ROUNDS = 4  # tool-loop 最大轮数，防止模型反复翻历史死循环
+
+log = logging.getLogger("ai")
 
 
 def _persona_block() -> str:
@@ -114,6 +117,7 @@ def _parse_decision(text: str) -> dict:
     try:
         d = json.loads(s)
     except json.JSONDecodeError:
+        log.warning("模型输出非合法 JSON，按不发言处理。原始输出：%r", (text or "")[:300])
         return {"memory": [], "should_speak": False, "reply": ""}
     return {
         "memory": d.get("memory") or [],
