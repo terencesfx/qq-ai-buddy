@@ -17,9 +17,9 @@ def _parse_args():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     # ── WebSocket ──
-    p.add_argument("--url", default="ws://110.40.173.49:3001",
+    p.add_argument("--url", default="ws://127.0.0.1:3001",
                    help="OneBot 正向 WebSocket 地址")
-    p.add_argument("--auth", default="0t59wQg9c~K98dvD",
+    p.add_argument("--auth", default="xxx",
                    help="OneBot access_token（会作为 Authorization: Bearer <token> 发送）")
     p.add_argument("--header", action="append", default=[], metavar="K:V",
                    help="额外的连接头，格式 名:值，可重复。会覆盖 --auth 生成的同名头。")
